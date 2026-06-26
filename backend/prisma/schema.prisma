@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USERS ───────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  role          UserRole  @default(CUSTOMER)
+  avatar        String?
+  phone         String?
+  emailVerified Boolean   @default(false)
+  twoFaEnabled  Boolean   @default(false)
+  twoFaSecret   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  orders        Order[]
+  addresses     Address[]
+  favorites     UserFavorite[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+enum UserRole {
+  CUSTOMER
+  OPERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// ─── TEAMS & KITS ─────────────────────────────────────────────────────────────
+
+model Team {
+  id          String   @id
+  name        String
+  shortName   String
+  country     String
+  league      String
+  continent   String
+  logoUrl     String?
+  primaryColor   String
+  secondaryColor String
+  accentColor    String?
+  founded     Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  kitModels   KitModel[]
+  favorites   UserFavorite[]
+
+  @@index([continent])
+  @@index([country])
+  @@map("teams")
+}
+
+model KitModel {
+  id           String   @id @default(cuid())
+  teamId       String
+  season       String
+  type         KitType
+  name         String
+  description  String?
+  basePrice    Decimal  @db.Decimal(10, 2)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  team         Team     @relation(fields: [teamId], references: [id])
+  orderItems   OrderItem[]
+
+  @@index([teamId])
+  @@index([season])
+  @@map("kit_models")
+}
+
+enum KitType {
+  HOME
+  AWAY
+  THIRD
+  GOALKEEPER
+  SPECIAL
+}
+
+model Patch {
+  id        String      @id @default(cuid())
+  name      String
+  imageUrl  String?
+  position  String
+  price     Decimal     @db.Decimal(10, 2)
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  @@map("patches")
+}
+
+model Championship {
+  id        String   @id @default(cuid())
+  name      String
+  logoUrl   String?
+  year      String?
+  price     Decimal  @db.Decimal(10, 2)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("championships")
+}
+
+// ─── ORDERS ───────────────────────────────────────────────────────────────────
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  userId          String?
+  guestEmail      String?
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentMethod   String?
+  paymentRef      String?       // Stripe/MercadoPago ID
+  subtotal        Decimal       @db.Decimal(10, 2)
+  discount        Decimal       @default(0) @db.Decimal(10, 2)
+  shippingCost    Decimal       @default(0) @db.Decimal(10, 2)
+  total           Decimal       @db.Decimal(10, 2)
+  notes           String?
+  trackingCode    String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  estimatedDelivery DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user            User?         @relation(fields: [userId], references: [id])
+  shippingAddress Address?      @relation(fields: [shippingAddressId], references: [id])
+  shippingAddressId String?
+  items           OrderItem[]
+  mockupFiles     MockupFile[]
+  statusHistory   OrderStatusHistory[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_PRODUCTION
+  QUALITY_CHECK
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model OrderItem {
+  id                  String   @id @default(cuid())
+  orderId             String
+  kitModelId          String
+  quantity            Int      @default(1)
+  unitPrice           Decimal  @db.Decimal(10, 2)
+  totalPrice          Decimal  @db.Decimal(10, 2)
+  gender              String
+  sleeve              String
+  size                String
+  // Personalization (stored as JSON)
+  personName          String?
+  personNumber        String?
+  personFont          String   @default("standard")
+  personNameColor     String   @default("#FFFFFF")
+  personNumberColor   String   @default("#FFFFFF")
+  personNameBorder    String?
+  personNumberBorder  String?
+  personNameSize      Int      @default(7)
+  personNumberSize    Int      @default(28)
+  isCaptain           Boolean  @default(false)
+  selectedPatches     String[] @default([])
+  selectedChampionships String[] @default([])
+  createdAt           DateTime @default(now())
+
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kitModel            KitModel @relation(fields: [kitModelId], references: [id])
+  mockupFiles         MockupFile[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  note      String?
+  createdBy String?
+  createdAt DateTime    @default(now())
+
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+// ─── ADDRESSES ────────────────────────────────────────────────────────────────
+
+model Address {
+  id           String   @id @default(cuid())
+  userId       String?
+  name         String
+  street       String
+  number       String
+  complement   String?
+  neighborhood String
+  city         String
+  state        String
+  zipCode      String
+  country      String   @default("Brasil")
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User?    @relation(fields: [userId], references: [id])
+  orders       Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ─── MOCKUP FILES ─────────────────────────────────────────────────────────────
+
+model MockupFile {
+  id          String      @id @default(cuid())
+  orderId     String
+  orderItemId String?
+  type        MockupType
+  format      String      // png, pdf, svg, ai
+  url         String
+  width       Int?
+  height      Int?
+  fileSizeKb  Int?
+  createdAt   DateTime    @default(now())
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem   OrderItem?  @relation(fields: [orderItemId], references: [id])
+
+  @@index([orderId])
+  @@map("mockup_files")
+}
+
+enum MockupType {
+  FRONT
+  BACK
+  LEFT
+  RIGHT
+  TECHNICAL_PDF
+  TECHNICAL_SVG
+  BUNDLE
+}
+
+// ─── MISC ─────────────────────────────────────────────────────────────────────
+
+model UserFavorite {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+  @@map("user_favorites")
+}
+
+model Coupon {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  type           String   // percent | fixed
+  value          Decimal  @db.Decimal(10, 2)
+  minOrderValue  Decimal? @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int      @default(0)
+  expiresAt      DateTime?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@index([code])
+  @@map("coupons")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  resource  String
+  resourceId String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
