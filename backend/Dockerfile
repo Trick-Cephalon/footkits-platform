@@ -1,5 +1,8 @@
-FROM node:22-alpine AS base
-RUN apk add --no-cache python3 make g++ cairo-dev pango-dev jpeg-dev giflib-dev
+FROM node:22-slim AS base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libjpeg62-turbo libgif7 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY package*.json ./
@@ -15,8 +18,11 @@ FROM base AS builder
 COPY . .
 RUN npx prisma generate && npm run build
 
-FROM node:22-alpine AS production
-RUN apk add --no-cache cairo pango jpeg giflib
+FROM node:22-slim AS production
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libjpeg62-turbo libgif7 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
@@ -24,5 +30,5 @@ COPY --from=builder /app/prisma ./prisma
 COPY package*.json ./
 COPY start.sh ./
 RUN chmod +x start.sh
-EXPOSE 3001
+EXPOSE 10000
 CMD ["sh", "start.sh"]
